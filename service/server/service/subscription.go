@@ -4,6 +4,15 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
+	"io/ioutil"
+	"net"
+	"net/http"
+	"net/url"
+	"strconv"
+	"strings"
+	"time"
+
 	"github.com/v2rayA/v2rayA/common"
 	"github.com/v2rayA/v2rayA/common/httpClient"
 	"github.com/v2rayA/v2rayA/common/resolv"
@@ -11,13 +20,6 @@ import (
 	"github.com/v2rayA/v2rayA/core/touch"
 	"github.com/v2rayA/v2rayA/db/configure"
 	"github.com/v2rayA/v2rayA/pkg/util/log"
-	"io"
-	"net"
-	"net/http"
-	"net/url"
-	"strconv"
-	"strings"
-	"time"
 )
 
 type SIP008 struct {
@@ -205,6 +207,8 @@ func UpdateSubscription(index int, disconnectIfNecessary bool) (err error) {
 		log.Warn("UpdateSubscription: %v: %v", err, subscriptionInfos)
 		return fmt.Errorf("UpdateSubscription: %v", reason)
 	}
+
+	parseSubscriptionDomain(subscriptionInfos, c) // 解析订阅,将域名替换为ip,使用Google DNS解析,解决DNS污染的问题
 	infoServerRaws := make([]configure.ServerRawV2, len(subscriptionInfos))
 	css := configure.GetConnectedServers()
 	cssAfter := css.Get()
@@ -259,6 +263,58 @@ func UpdateSubscription(index int, disconnectIfNecessary bool) (err error) {
 	subscriptions[index].Status = string(touch.NewUpdateStatus())
 	subscriptions[index].Info = status
 	return configure.SetSubscription(index, &subscriptions[index])
+}
+
+type DNSQuery struct {
+	Status   int  `json:"Status"`
+	TC       bool `json:"TC"`
+	RD       bool `json:"RD"`
+	RA       bool `json:"RA"`
+	AD       bool `json:"AD"`
+	CD       bool `json:"CD"`
+	Question []struct {
+		Name string `json:"name"`
+		Type int    `json:"type"`
+	} `json:"Question"`
+	Answer []struct {
+		Name string `json:"name"`
+		Type int    `json:"type"`
+		TTL  int    `json:"TTL"`
+		Data string `json:"data"`
+	} `json:"Answer"`
+}
+
+func parseSubscriptionDomain(serverList []serverObj.ServerObj, client *http.Client) {
+	for _, v := range serverList {
+		if v2ray, ok := v.(*serverObj.V2Ray); ok {
+			address := net.ParseIP(v2ray.Add)
+			if address != nil {
+				continue // ip地址不需要解析
+			}
+			var urlString = fmt.Sprintf("https://dns.google/resolve?name=%s&type=A", v2ray.Add)
+			resp, err := client.Get(urlString)
+			if err != nil {
+				log.Warn("parseSubscriptionDomain http request err: %s\n", err.Error())
+				continue
+			}
+
+			data, err := ioutil.ReadAll(resp.Body)
+			if err != nil {
+				log.Warn("parseSubscriptionDomain http request read body err: %s\n", err.Error())
+				continue
+			}
+			_ = resp.Body.Close()
+			dns := &DNSQuery{}
+			err = json.Unmarshal(data, dns)
+			if err != nil {
+				log.Warn("parseSubscriptionDomain json Unmarshal body err: %s\n%s", err.Error(), string(data))
+				continue
+			}
+			if len(dns.Answer) > 0 {
+				v2ray.Add = dns.Answer[0].Data
+			}
+		}
+	}
 }
 
 func ModifySubscriptionRemark(subscription touch.Subscription) (err error) {
