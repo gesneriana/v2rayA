@@ -285,36 +285,54 @@ type DNSQuery struct {
 }
 
 func parseSubscriptionDomain(serverList []serverObj.ServerObj, client *http.Client) {
+
+	var domainIpMap = make(map[string]string, 0)
 	for _, v := range serverList {
 		if v2ray, ok := v.(*serverObj.V2Ray); ok {
 			address := net.ParseIP(v2ray.Add)
 			if address != nil {
 				continue // ip地址不需要解析
 			}
-			var urlString = fmt.Sprintf("https://dns.google/resolve?name=%s&type=A", v2ray.Add)
-			resp, err := client.Get(urlString)
-			if err != nil {
-				log.Warn("parseSubscriptionDomain http request err: %s\n", err.Error())
-				continue
-			}
+			domainIpMap[v2ray.Add] = ""
+		}
+	}
 
-			data, err := ioutil.ReadAll(resp.Body)
-			if err != nil {
-				log.Warn("parseSubscriptionDomain http request read body err: %s\n", err.Error())
-				continue
-			}
-			_ = resp.Body.Close()
-			dns := &DNSQuery{}
-			err = json.Unmarshal(data, dns)
-			if err != nil {
-				log.Warn("parseSubscriptionDomain json Unmarshal body err: %s\n%s", err.Error(), string(data))
-				continue
-			}
-			if len(dns.Answer) > 0 {
-				v2ray.Add = dns.Answer[0].Data
+	for domain, _ := range domainIpMap {
+		var urlString = fmt.Sprintf("https://dns.google/resolve?name=%s&type=A", domain)
+		resp, err := client.Get(urlString)
+		if err != nil {
+			log.Warn("parseSubscriptionDomain http request err: %s\n", err.Error())
+			continue
+		}
+
+		data, err := ioutil.ReadAll(resp.Body)
+		if err != nil {
+			log.Warn("parseSubscriptionDomain http request read body err: %s\n", err.Error())
+			continue
+		}
+		_ = resp.Body.Close()
+		dns := &DNSQuery{}
+		err = json.Unmarshal(data, dns)
+		if err != nil {
+			log.Warn("parseSubscriptionDomain json Unmarshal body err: %s\n%s", err.Error(), string(data))
+			continue
+		}
+		if len(dns.Answer) > 0 {
+			domainIpMap[domain] = dns.Answer[0].Data
+		}
+	}
+
+	var count = 0
+	for _, v := range serverList {
+		if v2ray, ok := v.(*serverObj.V2Ray); ok {
+			if ip, isIp := domainIpMap[v2ray.Add]; isIp && len(ip) > 0 {
+				v2ray.Add = ip
+				count++
 			}
 		}
 	}
+
+	log.Info("parseSubscriptionDomain update domain to ip count:%d", count)
 }
 
 func ModifySubscriptionRemark(subscription touch.Subscription) (err error) {
