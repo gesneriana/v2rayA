@@ -2,13 +2,21 @@ package netTools
 
 import (
 	"bytes"
+	"context"
 	"fmt"
 	mapset "github.com/deckarep/golang-set/v2"
 	"github.com/pkg/errors"
 	"github.com/v2rayA/v2rayA/db/configure"
 	"github.com/v2rayA/v2rayA/pkg/util/log"
+	"golang.org/x/net/proxy"
+	"io/ioutil"
+	"net"
+	"net/http"
+	"net/url"
+	"os"
 	"os/exec"
 	"strings"
+	"time"
 )
 
 // GetServerDirectIP 获取机场直连ip,加入路由表
@@ -23,58 +31,104 @@ func GetServerDirectIP() mapset.Set[string] {
 	return ipSet
 }
 
-func TrimContentSpace(s string, num int) string {
-	for i := 0; i < num; i++ {
-		s = strings.ReplaceAll(s, "  ", " ")
-	}
-	return s
-}
-
-func GetGatewayIp() (gatewayIp string, ip string) {
-
-	command := exec.Command("route", "print")
+func GetIpConfig() string {
+	command := exec.Command("cmd.exe", "/c", "chcp 65001 & ipconfig")
 	var buffer bytes.Buffer
 	command.Stdout = &buffer //设置输入
 	if err := command.Start(); err != nil {
 		log.Error("GetGatewayIp Start err:%s", errors.WithStack(err).Error())
-		return "", ""
+		return ""
 	}
 	if err := command.Wait(); err != nil {
 		log.Error("GetGatewayIp Wait err:%s", errors.WithStack(err).Error())
-		return "", ""
+		return ""
 	}
-	fmt.Printf("%s", buffer.Bytes())
+
 	var result = buffer.String()
+	return result
+}
+
+func GetGatewayIp() (gatewayIp string, ip string) {
+
+	var result = GetIpConfig()
 	lines := strings.Split(result, "\n")
 
-	for _, line := range lines {
-		if strings.Count(line, "0.0.0.0") == 2 {
-			var gwString = TrimContentSpace(strings.TrimSpace(strings.Trim(line, "\r")), 10)
-			ipSlice := strings.Split(gwString, " ")
-			if len(ipSlice) >= 5 {
-				return ipSlice[2], ipSlice[3]
+	for i, line := range lines {
+		if strings.Contains(line, "默认网关") || strings.Contains(line, "Default Gateway") {
+			gw1, gw2 := line, ""
+			if len(line) > i+1 {
+				gw2 = lines[i+1]
+			}
+			if strings.Count(gw1, ".") == 3 {
+				gatewayLineSlice := strings.Split(gw1, ":")
+				gatewayString := gatewayLineSlice[len(gatewayLineSlice)-1]
+				gatewayIp = strings.TrimSpace(strings.Trim(gatewayString, "\r"))
+			} else if strings.Count(gw2, ".") == 3 {
+				gatewayLineSlice := strings.Split(gw2, ":")
+				gatewayString := gatewayLineSlice[len(gatewayLineSlice)-1]
+				gatewayIp = strings.TrimSpace(strings.Trim(gatewayString, "\r"))
+			}
+		}
+		if len(ip) == 0 && strings.Contains(line, "IPv4 地址") || strings.Contains(line, "IPv4 Address") {
+			ipLineSlice := strings.Split(line, ":")
+			ipString := ipLineSlice[len(ipLineSlice)-1]
+			if strings.Count(ipString, ".") == 3 {
+				ip = strings.TrimSpace(strings.Trim(ipString, "\r"))
 			}
 		}
 	}
-	return "", ""
+	return
 }
 
-func ExecCmd(s string) {
+func ExecCmd(s string) string {
 	if len(s) == 0 {
-		return
+		return ""
 	}
 	command := exec.Command("cmd.exe", "/c", s)
 	var buffer bytes.Buffer
 	command.Stdout = &buffer //设置输入
 	if err := command.Start(); err != nil {
-		log.Error("AddRoute Start err:%s", errors.WithStack(err).Error())
-		return
+		log.Error("ExecCmd Start err:%s", errors.WithStack(err).Error())
+		return ""
 	}
 	if err := command.Wait(); err != nil {
-		log.Error("AddRoute Wait err:%s, buffer:%s", errors.WithStack(err).Error(), buffer.String())
+		log.Error("ExecCmd Wait err:%s, buffer:%s", errors.WithStack(err).Error(), buffer.String())
+		return ""
+	}
+	var result = buffer.String()
+	buffer.Reset()
+
+	return result
+}
+
+func ExecCmdWithArgsAsync(cmd string, args ...string) *os.Process {
+	if len(cmd) == 0 {
+		return nil
+	}
+	command := exec.Command(cmd, args...)
+
+	command.Stdout = os.Stdout //设置输入
+	if err := command.Start(); err != nil {
+		log.Error("ExecCmdWithArgsAsync Start err:%s", errors.WithStack(err).Error())
+		return nil
+	}
+
+	return command.Process
+}
+
+func ExecCmdWithArgs(cmd string, args ...string) {
+	if len(cmd) == 0 {
 		return
 	}
-	buffer.Reset()
+	command := exec.Command(cmd, args...)
+
+	command.Stdout = os.Stdout //设置输入
+	if err := command.Run(); err != nil {
+		log.Error("ExecCmdWithArgs Run err:%s", errors.WithStack(err).Error())
+		return
+	}
+
+	return
 }
 
 // AddRoute  添加路由到路由表, 添加路由表需要管理员权限
@@ -99,8 +153,108 @@ func AddRoute(ipSet mapset.Set[string], gateway string) {
 	commandSet.Clear()
 }
 
+var tunProcess *os.Process
+
 func InitRoute() {
 	gw, _ := GetGatewayIp()
+	if len(gw) == 0 {
+		log.Error("GetGatewayIp err")
+		return
+	}
+	log.Info("exec cmd: taskkill /f /im tun2socks.exe")
+	ExecCmdWithArgs("taskkill", "/f", "/im", "tun2socks.exe")
+
+	var listeningString = ExecCmd(fmt.Sprintf("netstat -ano | findstr %d | findstr LISTENING", configure.GetPortsNotNil().Socks5))
+	if len(listeningString) > 0 {
+		listeningSlice := strings.Split(listeningString, "LISTENING")
+		if len(listeningSlice) == 2 {
+			pidString := strings.TrimSpace(strings.Trim(listeningSlice[1], "\r\n"))
+			log.Info("exec cmd: taskkill /f /pid %s", pidString)
+			ExecCmdWithArgs("taskkill", "/f", "/pid", pidString)
+		}
+	}
 	serverIpSet := GetServerDirectIP()
 	AddRoute(serverIpSet, gw)
+
+	waitChan := make(chan int, 0)
+	go func() {
+		var socks5 = fmt.Sprintf("socks5://127.0.0.1:%d", configure.GetPortsNotNil().Socks5)
+		for {
+			client := GetHttpClient(socks5)
+			rsp, err := client.Get("https://google.com/")
+			if err != nil {
+				continue
+			}
+			data, err := ioutil.ReadAll(rsp.Body)
+			if err != nil {
+				continue
+			}
+			_ = rsp.Body.Close()
+			if len(data) > 0 {
+				close(waitChan)
+				break
+			}
+
+			time.Sleep(time.Second * 3)
+		}
+
+		log.Info("exec cmd: ./tun2socks.exe -device tun://v2raya -proxy %s", socks5)
+		tunProcess = ExecCmdWithArgsAsync("./tun2socks.exe", "-device", "tun://v2raya", "-proxy", socks5)
+	}()
+	go func() {
+		<-waitChan
+		for {
+			time.Sleep(time.Second)
+			var result = GetIpConfig()
+			if strings.Contains(result, "v2raya") {
+				break
+			}
+		}
+
+		// netsh interface ip set address v2raya static 10.0.68.10 255.255.255.0 10.0.68.1 3
+		log.Info("exec cmd: netsh interface ip set address v2raya static 10.0.68.10 255.255.255.0 10.0.68.1 3")
+		ExecCmdWithArgs("netsh", strings.Split("interface ip set address v2raya static 10.0.68.10 255.255.255.0 10.0.68.1 3", " ")...)
+	}()
+}
+
+var proxyClient = &http.Client{}
+
+// GetHttpClient 获取全局的http代理客户端
+func GetHttpClient(socks5 string) *http.Client {
+	// 使用socks5代理初始化http客户端
+	tgProxyURL, err := url.Parse(socks5)
+	if err != nil {
+		log.Error("Failed to parse proxy URL:%s\n", errors.WithStack(err).Error())
+		return proxyClient
+	}
+	proxyDialer, err := proxy.FromURL(tgProxyURL, proxy.Direct)
+	if err != nil {
+		log.Error("Failed to obtain proxy dialer: %s\n", errors.WithStack(err).Error())
+		return proxyClient
+	}
+	var dialContext = func(ctx context.Context, network string, addr string) (net.Conn, error) {
+		return proxyDialer.Dial(network, addr)
+	}
+	tgTransport := &http.Transport{
+		DialContext: dialContext,
+	}
+	proxyClient.Transport = tgTransport // 使用全局的HttpClient不需要释放连接
+	return proxyClient
+}
+
+func CloseTun() {
+	log.Info("exec cmd: taskkill /f /im tun2socks.exe")
+	ExecCmdWithArgs("taskkill", "/f", "/im", "tun2socks.exe")
+
+	var listeningString = ExecCmd(fmt.Sprintf("netstat -ano | findstr %d | findstr LISTENING", configure.GetPortsNotNil().Socks5))
+	if len(listeningString) > 0 {
+		listeningSlice := strings.Split(listeningString, "LISTENING")
+		if len(listeningSlice) == 2 {
+			pidString := strings.TrimSpace(strings.Trim(listeningSlice[1], "\r\n"))
+			log.Info("exec cmd: taskkill /f /pid %s", pidString)
+			ExecCmdWithArgs("taskkill", "/f", "/pid", pidString)
+		}
+	}
+
+	log.Info("CloseTun is success")
 }
