@@ -14,11 +14,12 @@ type ServerRawV2 struct {
 }
 
 type SubscriptionRawV2 struct {
-	Remarks string        `json:"remarks,omitempty"`
-	Address string        `json:"address"`
-	Status  string        `json:"status"` //update time, error info, etc.
-	Servers []ServerRawV2 `json:"servers"`
-	Info    string        `json:"info"` // maybe include some info from provider
+	Remarks     string              `json:"remarks,omitempty"`
+	Address     string              `json:"address"`
+	Status      string              `json:"status"` //update time, error info, etc.
+	Servers     []ServerRawV2       `json:"servers"`
+	Info        string              `json:"info"`          // maybe include some info from provider
+	DirectIpSet map[string]struct{} `json:"direct_ip_set"` // windows tun direct ip
 }
 
 func Bytes2SubscriptionRaw2(b []byte) (*SubscriptionRawV2, error) {
