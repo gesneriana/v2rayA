@@ -140,6 +140,9 @@ func AddRoute(ipSet mapset.Set[string], gateway string) {
 	commandSet.Clear()
 }
 
+// DNS的ip列表, 加到路由表
+var directDnsIp = []string{"223.6.6.6", "119.29.29.29", "8.8.8.8", "1.1.1.1", "208.67.222.222", "208.67.220.220", "8.8.4.4", "162.14.21.56", "162.14.21.178", "175.24.154.66"}
+
 func CheckAndStartWinTunnel() {
 	config := conf.GetEnvironmentConfig()
 	if !config.WinTunnel {
@@ -168,6 +171,9 @@ func CheckAndStartWinTunnel() {
 
 	CloseTun()
 	serverIpSet := GetServerDirectIP()
+	for _, dnsIp := range directDnsIp {
+		serverIpSet.Add(dnsIp) // 防止流量在本地回环死循环, 导致系统CPU和内存暴增
+	}
 	AddRoute(serverIpSet, gw)
 
 	var socks5 = fmt.Sprintf("socks5://127.0.0.1:%d", configure.GetPortsNotNil().Socks5)
