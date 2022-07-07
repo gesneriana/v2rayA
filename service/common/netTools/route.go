@@ -86,6 +86,8 @@ func ExecCmd(s string) string {
 		return ""
 	}
 	command := exec.Command("cmd.exe", "/c", s)
+	log.Info("ExecCmd Run:%s", command.String())
+
 	var buffer bytes.Buffer
 	command.Stdout = &buffer //设置输入
 	if err := command.Start(); err != nil {
@@ -102,19 +104,20 @@ func ExecCmd(s string) string {
 	return result
 }
 
-func ExecCmdWithArgsAsync(cmd string, args ...string) *os.Process {
+func ExecCmdWithArgsAsync(cmd string, args ...string) int {
 	if len(cmd) == 0 {
-		return nil
+		return 0
 	}
 	command := exec.Command(cmd, args...)
+	log.Info("ExecCmdWithArgsAsync Run:%s", command.String())
 
 	command.Stdout = os.Stdout //设置输入
 	if err := command.Start(); err != nil {
 		log.Error("ExecCmdWithArgsAsync Start err:%s", errors.WithStack(err).Error())
-		return nil
+		return 0
 	}
 
-	return command.Process
+	return command.Process.Pid
 }
 
 func ExecCmdWithArgs(cmd string, args ...string) {
@@ -122,14 +125,13 @@ func ExecCmdWithArgs(cmd string, args ...string) {
 		return
 	}
 	command := exec.Command(cmd, args...)
+	log.Info("ExecCmdWithArgs Run:%s", command.String())
 
 	command.Stdout = os.Stdout //设置输入
 	if err := command.Run(); err != nil {
 		log.Error("ExecCmdWithArgs Run err:%s", errors.WithStack(err).Error())
 		return
 	}
-
-	return
 }
 
 // AddRoute  添加路由到路由表, 添加路由表需要管理员权限
@@ -154,8 +156,6 @@ func AddRoute(ipSet mapset.Set[string], gateway string) {
 	commandSet.Clear()
 }
 
-var tunProcess *os.Process
-
 func InitRoute() {
 	gw, _ := GetGatewayIp()
 	if len(gw) == 0 {
@@ -165,16 +165,15 @@ func InitRoute() {
 
 	var tun2socksString = ExecCmd("tasklist | findstr tun2socks.exe")
 	if strings.Contains(tun2socksString, "tun2socks.exe") {
-		log.Info("exec cmd: taskkill /f /im tun2socks.exe")
 		ExecCmdWithArgs("taskkill", "/f", "/im", "tun2socks.exe")
 	}
 
 	var listeningString = ExecCmd(fmt.Sprintf("netstat -ano | findstr %d | findstr LISTENING", configure.GetPortsNotNil().Socks5))
 	if len(listeningString) > 0 {
-		listeningSlice := strings.Split(listeningString, "LISTENING")
+		// 可能监听了多个ip, 比如 0.0.0.0 和 [::]
+		listeningSlice := strings.Split(strings.Split(listeningString, "\r\n")[0], "LISTENING")
 		if len(listeningSlice) == 2 {
-			pidString := strings.TrimSpace(strings.Trim(listeningSlice[1], "\r\n"))
-			log.Info("exec cmd: taskkill /f /pid %s", pidString)
+			pidString := strings.TrimSpace(listeningSlice[1])
 			ExecCmdWithArgs("taskkill", "/f", "/pid", pidString)
 		}
 	}
@@ -203,8 +202,7 @@ func InitRoute() {
 			time.Sleep(time.Second * 3)
 		}
 
-		log.Info("exec cmd: ./tun2socks.exe -device tun://v2raya -proxy %s", socks5)
-		tunProcess = ExecCmdWithArgsAsync("./tun2socks.exe", "-device", "tun://v2raya", "-proxy", socks5)
+		ExecCmdWithArgsAsync("./tun2socks.exe", "-device", "tun://v2raya", "-proxy", socks5)
 	}()
 	go func() {
 		<-waitChan
@@ -216,8 +214,8 @@ func InitRoute() {
 			}
 		}
 
+		time.Sleep(time.Second * 5)
 		// netsh interface ip set address v2raya static 10.0.68.10 255.255.255.0 10.0.68.1 3
-		log.Info("exec cmd: netsh interface ip set address v2raya static 10.0.68.10 255.255.255.0 10.0.68.1 3")
 		ExecCmdWithArgs("netsh", strings.Split("interface ip set address v2raya static 10.0.68.10 255.255.255.0 10.0.68.1 3", " ")...)
 	}()
 }
