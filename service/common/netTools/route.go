@@ -162,11 +162,13 @@ func InitRoute() {
 	serverIpSet := GetServerDirectIP()
 	AddRoute(serverIpSet, gw)
 
+	var socks5 = fmt.Sprintf("socks5://127.0.0.1:%d", configure.GetPortsNotNil().Socks5)
 	waitChan := make(chan int)
+	var isOpen = false
+
 	go func() {
-		var socks5 = fmt.Sprintf("socks5://127.0.0.1:%d", configure.GetPortsNotNil().Socks5)
-		for {
-			client := GetHttpClient(socks5)
+		client := GetHttpClient(socks5)
+		for i := 0; i < 5; i++ {
 			rsp, err := client.Get("https://www.google.com/generate_204")
 			if err != nil {
 				continue
@@ -177,17 +179,27 @@ func InitRoute() {
 			}
 			_ = rsp.Body.Close()
 			if rsp.StatusCode == 204 || len(data) > 0 {
+				isOpen = true
 				close(waitChan)
-				break
+				return
 			}
-
 			time.Sleep(time.Second * 3)
 		}
+		close(waitChan) // 为了防止协程泄露，一定次数之后关闭，释放另外两个正在等待中的协程
+	}()
 
+	go func() {
+		<-waitChan
+		if !isOpen {
+			return
+		}
 		ExecCmdWithArgsAsync("./tun2socks.exe", "-device", "tun://v2raya", "-proxy", socks5)
 	}()
 	go func() {
 		<-waitChan
+		if !isOpen {
+			return
+		}
 		for {
 			time.Sleep(time.Second)
 			var result = ExecCmd("chcp 65001 & ipconfig")
