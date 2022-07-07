@@ -145,20 +145,7 @@ func InitRoute() {
 		return
 	}
 
-	var tun2socksString = ExecCmd("tasklist | findstr tun2socks.exe")
-	if strings.Contains(tun2socksString, "tun2socks.exe") {
-		ExecCmdWithArgs("taskkill", "/f", "/im", "tun2socks.exe")
-	}
-
-	var listeningString = ExecCmd(fmt.Sprintf("netstat -ano | findstr %d | findstr LISTENING", configure.GetPortsNotNil().Socks5))
-	if len(listeningString) > 0 {
-		// 可能监听了多个ip, 比如 0.0.0.0 和 [::]
-		listeningSlice := strings.Split(strings.Split(listeningString, "\r\n")[0], "LISTENING")
-		if len(listeningSlice) == 2 {
-			pidString := strings.TrimSpace(listeningSlice[1])
-			ExecCmdWithArgs("taskkill", "/f", "/pid", pidString)
-		}
-	}
+	CloseTun()
 	serverIpSet := GetServerDirectIP()
 	AddRoute(serverIpSet, gw)
 
@@ -193,7 +180,7 @@ func InitRoute() {
 		if !isOpen {
 			return
 		}
-		ExecCmdWithArgsAsync("./tun2socks.exe", "-device", "tun://v2raya", "-proxy", socks5)
+		ExecCmdWithArgsAsync("cmd", "/c", "start", "/min", "./tun2socks.exe", "-device", "tun://v2raya", "-proxy", socks5)
 	}()
 	go func() {
 		<-waitChan
@@ -254,15 +241,17 @@ func GetHttpClient(socks5 string) *http.Client {
 }
 
 func CloseTun() {
-	log.Info("exec cmd: taskkill /f /im tun2socks.exe")
-	ExecCmdWithArgs("taskkill", "/f", "/im", "tun2socks.exe")
+	var tun2socksString = ExecCmd("tasklist | findstr tun2socks.exe")
+	if strings.Contains(tun2socksString, "tun2socks.exe") {
+		ExecCmdWithArgs("taskkill", "/f", "/im", "tun2socks.exe")
+	}
 
 	var listeningString = ExecCmd(fmt.Sprintf("netstat -ano | findstr %d | findstr LISTENING", configure.GetPortsNotNil().Socks5))
 	if len(listeningString) > 0 {
-		listeningSlice := strings.Split(listeningString, "LISTENING")
+		// 可能监听了多个ip, 比如 0.0.0.0 和 [::]
+		listeningSlice := strings.Split(strings.Split(listeningString, "\r\n")[0], "LISTENING")
 		if len(listeningSlice) == 2 {
-			pidString := strings.TrimSpace(strings.Trim(listeningSlice[1], "\r\n"))
-			log.Info("exec cmd: taskkill /f /pid %s", pidString)
+			pidString := strings.TrimSpace(listeningSlice[1])
 			ExecCmdWithArgs("taskkill", "/f", "/pid", pidString)
 		}
 	}
