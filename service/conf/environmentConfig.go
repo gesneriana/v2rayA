@@ -2,14 +2,15 @@ package conf
 
 import (
 	"fmt"
-	"github.com/stevenroose/gonfig"
-	"github.com/v2rayA/v2rayA/common"
-	"github.com/v2rayA/v2rayA/pkg/util/log"
 	log2 "log"
 	"os"
 	"path/filepath"
 	"strings"
 	"sync"
+
+	"github.com/stevenroose/gonfig"
+	"github.com/v2rayA/v2rayA/common"
+	"github.com/v2rayA/v2rayA/pkg/util/log"
 )
 
 type Params struct {
@@ -32,6 +33,7 @@ type Params struct {
 	Lite                    bool     `id:"lite" desc:"Lite mode for non-root and non-linux users"`
 	ShowVersion             bool     `id:"version"`
 	PrintReport             string   `id:"report" desc:"Print report"`
+	WinTunnel               bool     `id:"win-tun" default:"false" desc:"Use windows tun global proxy"`
 }
 
 var params Params

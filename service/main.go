@@ -1,6 +1,14 @@
 package main
 
 import (
+	"fmt"
+	"os"
+	"os/signal"
+	"runtime"
+	"syscall"
+
+	"github.com/v2rayA/v2rayA/common/netTools"
+
 	"github.com/gin-gonic/gin"
 	_ "github.com/v2rayA/v2rayA/conf/report"
 	_ "github.com/v2rayA/v2rayA/pkg/plugin/pingtunnel"
@@ -13,7 +21,6 @@ import (
 	_ "github.com/v2rayA/v2rayA/pkg/plugin/trojanc"
 	_ "github.com/v2rayA/v2rayA/pkg/plugin/ws"
 	"github.com/v2rayA/v2rayA/pkg/util/log"
-	"runtime"
 )
 
 func main() {
@@ -21,11 +28,30 @@ func main() {
 	checkEnvironment()
 	if runtime.GOOS == "linux" {
 		checkTProxySupportability()
+	} else if runtime.GOOS == "windows" {
+		netTools.CheckAndStartWinTunnel()
 	}
 	initConfigure()
 	checkUpdate()
 	hello()
-	if err := run(); err != nil {
-		log.Fatal("main: %v", err)
+
+	go func() {
+		if err := run(); err != nil {
+			log.Fatal("main: %v", err)
+		}
+	}()
+
+	if runtime.GOOS == "windows" {
+		// 监控两个信号
+		// TERM信号（kill + 进程号 触发）
+		// 中断信号（ctrl + c 触发）
+		osc := make(chan os.Signal, 1)
+		signal.Notify(osc, syscall.SIGTERM, syscall.SIGINT)
+		s := <-osc
+		fmt.Println("监听到退出信号,s=", s)
+
+		// 退出前的清理操作
+		netTools.CloseTun()
+		log.Info("v2raya server is stop")
 	}
 }

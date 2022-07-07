@@ -2,8 +2,17 @@ package service
 
 import (
 	"encoding/json"
-	"errors"
 	"fmt"
+	"io"
+	"io/ioutil"
+	"net"
+	"net/http"
+	"net/url"
+	"strconv"
+	"strings"
+	"time"
+
+	"github.com/pkg/errors"
 	"github.com/v2rayA/v2rayA/common"
 	"github.com/v2rayA/v2rayA/common/httpClient"
 	"github.com/v2rayA/v2rayA/common/resolv"
@@ -11,13 +20,6 @@ import (
 	"github.com/v2rayA/v2rayA/core/touch"
 	"github.com/v2rayA/v2rayA/db/configure"
 	"github.com/v2rayA/v2rayA/pkg/util/log"
-	"io"
-	"net"
-	"net/http"
-	"net/url"
-	"strconv"
-	"strings"
-	"time"
 )
 
 type SIP008 struct {
@@ -205,6 +207,8 @@ func UpdateSubscription(index int, disconnectIfNecessary bool) (err error) {
 		log.Warn("UpdateSubscription: %v: %v", err, subscriptionInfos)
 		return fmt.Errorf("UpdateSubscription: %v", reason)
 	}
+
+	parseSubscriptionDomain(&subscriptions[index], subscriptionInfos) // 解析订阅,将域名替换为ip,使用Google DNS解析,解决DNS污染的问题
 	infoServerRaws := make([]configure.ServerRawV2, len(subscriptionInfos))
 	css := configure.GetConnectedServers()
 	cssAfter := css.Get()
@@ -259,6 +263,122 @@ func UpdateSubscription(index int, disconnectIfNecessary bool) (err error) {
 	subscriptions[index].Status = string(touch.NewUpdateStatus())
 	subscriptions[index].Info = status
 	return configure.SetSubscription(index, &subscriptions[index])
+}
+
+type DNSQuery struct {
+	Status   int  `json:"Status"`
+	TC       bool `json:"TC"`
+	RD       bool `json:"RD"`
+	RA       bool `json:"RA"`
+	AD       bool `json:"AD"`
+	CD       bool `json:"CD"`
+	Question []struct {
+		Name string `json:"name"`
+		Type int    `json:"type"`
+	} `json:"Question"`
+	Answer []struct {
+		Name string `json:"name"`
+		Type int    `json:"type"`
+		TTL  int    `json:"TTL"`
+		Data string `json:"data"`
+	} `json:"Answer"`
+}
+
+func parseSubscriptionDomain(sub *configure.SubscriptionRawV2, serverList []serverObj.ServerObj) {
+	client, err := httpClient.GetHttpClientWithv2rayAProxy()
+	if err != nil {
+		log.Warn("parseSubscriptionDomain GetHttpClientWithv2rayAProxy err: %s\n", errors.WithStack(err).Error())
+		return
+	}
+
+	sub.DirectIpSet = make(map[string]struct{}, 0)
+	var domainIpMap = make(map[string]string, 0)
+	for _, server := range serverList {
+		switch v := server.(type) {
+		case *serverObj.V2Ray:
+			address := net.ParseIP(v.Add)
+			if address != nil {
+				continue // ip地址不需要解析
+			}
+			domainIpMap[v.Add] = ""
+		case *serverObj.HTTP:
+			address := net.ParseIP(v.Server)
+			if address != nil {
+				continue // ip地址不需要解析
+			}
+			domainIpMap[v.Server] = ""
+		case *serverObj.PingTunnel:
+			address := net.ParseIP(v.Server)
+			if address != nil {
+				continue // ip地址不需要解析
+			}
+			domainIpMap[v.Server] = ""
+		case *serverObj.SOCKS:
+			address := net.ParseIP(v.Server)
+			if address != nil {
+				continue // ip地址不需要解析
+			}
+			domainIpMap[v.Server] = ""
+		case *serverObj.Shadowsocks:
+			address := net.ParseIP(v.Server)
+			if address != nil {
+				continue // ip地址不需要解析
+			}
+			domainIpMap[v.Server] = ""
+		case *serverObj.ShadowsocksR:
+			address := net.ParseIP(v.Server)
+			if address != nil {
+				continue // ip地址不需要解析
+			}
+			domainIpMap[v.Server] = ""
+		case *serverObj.Trojan:
+			address := net.ParseIP(v.Server)
+			if address != nil {
+				continue // ip地址不需要解析
+			}
+			domainIpMap[v.Server] = ""
+		default:
+			log.Warn("parseSubscriptionDomain unhandled type\n")
+		}
+	}
+
+	for domain, _ := range domainIpMap {
+		var urlString = fmt.Sprintf("https://dns.google/resolve?name=%s&type=A", domain)
+		resp, err := client.Get(urlString)
+		if err != nil {
+			log.Warn("parseSubscriptionDomain http request err: %s\n", err.Error())
+			continue
+		}
+
+		data, err := ioutil.ReadAll(resp.Body)
+		if err != nil {
+			log.Warn("parseSubscriptionDomain http request read body err: %s\n", err.Error())
+			continue
+		}
+		_ = resp.Body.Close()
+		dns := &DNSQuery{}
+		err = json.Unmarshal(data, dns)
+		if err != nil {
+			log.Warn("parseSubscriptionDomain json Unmarshal body err: %s\n%s", err.Error(), string(data))
+			continue
+		}
+		if len(dns.Answer) > 0 {
+			domainIpMap[domain] = dns.Answer[0].Data
+		}
+	}
+
+	var count = 0
+	for _, v := range serverList {
+		if v2ray, ok := v.(*serverObj.V2Ray); ok {
+			if ip, isIp := domainIpMap[v2ray.Add]; isIp && len(ip) > 0 {
+				v2ray.Add = ip
+				sub.DirectIpSet[ip] = struct{}{} // 机场ip直连
+				count++
+			}
+		}
+	}
+
+	log.Info("parseSubscriptionDomain update domain to ip count:%d", count)
 }
 
 func ModifySubscriptionRemark(subscription touch.Subscription) (err error) {

@@ -1,11 +1,12 @@
 module github.com/v2rayA/v2rayA
 
-go 1.17
+go 1.18
 
 require (
 	github.com/adrg/xdg v0.4.0
 	github.com/beevik/ntp v0.3.0
 	github.com/boltdb/bolt v1.3.1
+	github.com/deckarep/golang-set/v2 v2.1.0
 	github.com/devfeel/mapper v0.7.5
 	github.com/dgrijalva/jwt-go/v4 v4.0.0-preview1
 	github.com/gin-contrib/cors v1.3.1
