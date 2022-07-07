@@ -6,6 +6,16 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"net"
+	"net/url"
+	"os"
+	"regexp"
+	"sort"
+	"strconv"
+	"strings"
+	"sync"
+	"time"
+
 	jsoniter "github.com/json-iterator/go"
 	"github.com/mohae/deepcopy"
 	"github.com/v2rayA/RoutingA"
@@ -23,15 +33,6 @@ import (
 	"github.com/v2rayA/v2rayA/db/configure"
 	"github.com/v2rayA/v2rayA/pkg/plugin"
 	"github.com/v2rayA/v2rayA/pkg/util/log"
-	"net"
-	"net/url"
-	"os"
-	"regexp"
-	"sort"
-	"strconv"
-	"strings"
-	"sync"
-	"time"
 )
 
 type Template struct {
@@ -1039,6 +1040,12 @@ func (t *Template) setInbound() error {
 			if err := SetVlessGrpcInbound(vlessGrpc); err != nil {
 				return err
 			}
+		}
+
+		// 开启tun代理必须使用Xray内核, 开启Udp和流量探测
+		if t.Setting.WinTun && t.Variant == "Xray" {
+			t.Inbounds[0].Sniffing.Enabled = true
+			t.Inbounds[0].Settings.UDP = true
 		}
 	}
 	// remove those inbounds with zero port number

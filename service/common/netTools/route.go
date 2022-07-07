@@ -4,6 +4,8 @@ import (
 	"bytes"
 	"context"
 	"fmt"
+	"github.com/v2rayA/v2rayA/conf"
+	"github.com/v2rayA/v2rayA/core/v2ray/where"
 	"io/ioutil"
 	"net"
 	"net/http"
@@ -138,7 +140,26 @@ func AddRoute(ipSet mapset.Set[string], gateway string) {
 	commandSet.Clear()
 }
 
-func InitRoute() {
+func CheckAndStartWinTunnel() {
+	config := conf.GetEnvironmentConfig()
+	if !config.WinTunnel {
+		return
+	}
+
+	variant, _, _ := where.GetV2rayServiceVersion()
+	setting := configure.GetSettingNotNil()
+	// 开启tun代理需要使用Xray内核, 开启Udp和流量探测, 我没有测试过其他的内核是否支持tun代理, 目前只是实验性的功能, 小范围测试和自用的
+	if variant == "Xray" {
+		setting.WinTun = true
+
+	} else {
+		setting.WinTun = false
+	}
+	_ = configure.SetSetting(setting)
+	if !setting.WinTun {
+		return // 为了避免因为环境因素不支持, 强行开启tun代理导致上网异常, 这里直接return
+	}
+
 	gw, _ := GetGatewayIp()
 	if len(gw) == 0 {
 		log.Error("GetGatewayIp err")

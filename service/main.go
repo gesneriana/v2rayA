@@ -29,7 +29,7 @@ func main() {
 	if runtime.GOOS == "linux" {
 		checkTProxySupportability()
 	} else if runtime.GOOS == "windows" {
-		netTools.InitRoute()
+		netTools.CheckAndStartWinTunnel()
 		log.Info("add server ip to route")
 	}
 	initConfigure()

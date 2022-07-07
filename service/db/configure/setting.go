@@ -22,6 +22,7 @@ type Setting struct {
 	SpecialMode                        SpecialMode     `json:"specialMode"`
 	TransparentType                    TransparentType `json:"transparentType"`
 	AntiPollution                      Antipollution   `json:"antipollution"`
+	WinTun                             bool            `json:"win_tun"`
 }
 
 func NewSetting() (setting *Setting) {
