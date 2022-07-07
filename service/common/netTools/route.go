@@ -32,26 +32,8 @@ func GetServerDirectIP() mapset.Set[string] {
 	return ipSet
 }
 
-func GetIpConfig() string {
-	command := exec.Command("cmd.exe", "/c", "chcp 65001 & ipconfig")
-	var buffer bytes.Buffer
-	command.Stdout = &buffer //设置输入
-	if err := command.Start(); err != nil {
-		log.Error("GetGatewayIp Start err:%s", errors.WithStack(err).Error())
-		return ""
-	}
-	if err := command.Wait(); err != nil {
-		log.Error("GetGatewayIp Wait err:%s", errors.WithStack(err).Error())
-		return ""
-	}
-
-	var result = buffer.String()
-	return result
-}
-
 func GetGatewayIp() (gatewayIp string, ip string) {
-
-	var result = GetIpConfig()
+	var result = ExecCmd("chcp 65001 & ipconfig")
 	lines := strings.Split(result, "\n")
 
 	for i, line := range lines {
@@ -208,15 +190,29 @@ func InitRoute() {
 		<-waitChan
 		for {
 			time.Sleep(time.Second)
-			var result = GetIpConfig()
+			var result = ExecCmd("chcp 65001 & ipconfig")
 			if strings.Contains(result, "v2raya") {
 				break
 			}
 		}
 
 		time.Sleep(time.Second * 5)
-		// netsh interface ip set address v2raya static 10.0.68.10 255.255.255.0 10.0.68.1 3
-		ExecCmdWithArgs("netsh", strings.Split("interface ip set address v2raya static 10.0.68.10 255.255.255.0 10.0.68.1 3", " ")...)
+		for i := 0; i < 10; i++ {
+			var result = ExecCmd("chcp 65001 & ipconfig")
+			if strings.Contains(result, "10.0.68.10") {
+				break
+			} else if strings.Contains(result, "169.254.") {
+				// 请打开 windows系统的 计算机管理-设备管理器-网络适配器 卸载所有的 [WireGuard Tunnel] 虚拟网卡
+				// https://docs.microsoft.com/zh-cn/troubleshoot/windows-server/networking/blank-default-gateway-configure-static-ip-address
+				log.Error("请打开 windows系统的 计算机管理-设备管理器-网络适配器 卸载所有的 [WireGuard Tunnel] 虚拟网卡")
+				log.Error("https://docs.microsoft.com/zh-cn/troubleshoot/windows-server/networking/blank-default-gateway-configure-static-ip-address")
+				break
+			} else {
+				// netsh interface ip set address v2raya static 10.0.68.10 255.255.255.0 10.0.68.1 3
+				ExecCmdWithArgs("netsh", strings.Split("interface ip set address v2raya static 10.0.68.10 255.255.255.0 10.0.68.1 3", " ")...)
+				time.Sleep(time.Second * 3)
+			}
+		}
 	}()
 }
 
