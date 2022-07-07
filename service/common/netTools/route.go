@@ -180,6 +180,8 @@ func InitRoute() {
 		if !isOpen {
 			return
 		}
+		// v2raya 开启的socks5代理没办法作为tun代理，可能是没有开启udp和流量探测, v2rayn的就可以
+		// ./tun2socks.exe -device tun://v2raya -proxy socks5://127.0.0.1:10808
 		ExecCmdWithArgsAsync("cmd", "/c", "start", "/min", "./tun2socks.exe", "-device", "tun://v2raya", "-proxy", socks5)
 	}()
 	go func() {
