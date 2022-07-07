@@ -4,11 +4,6 @@ import (
 	"bytes"
 	"context"
 	"fmt"
-	mapset "github.com/deckarep/golang-set/v2"
-	"github.com/pkg/errors"
-	"github.com/v2rayA/v2rayA/db/configure"
-	"github.com/v2rayA/v2rayA/pkg/util/log"
-	"golang.org/x/net/proxy"
 	"io/ioutil"
 	"net"
 	"net/http"
@@ -17,6 +12,12 @@ import (
 	"os/exec"
 	"strings"
 	"time"
+
+	mapset "github.com/deckarep/golang-set/v2"
+	"github.com/pkg/errors"
+	"github.com/v2rayA/v2rayA/db/configure"
+	"github.com/v2rayA/v2rayA/pkg/util/log"
+	"golang.org/x/net/proxy"
 )
 
 // GetServerDirectIP 获取机场直连ip,加入路由表
@@ -161,8 +162,12 @@ func InitRoute() {
 		log.Error("GetGatewayIp err")
 		return
 	}
-	log.Info("exec cmd: taskkill /f /im tun2socks.exe")
-	ExecCmdWithArgs("taskkill", "/f", "/im", "tun2socks.exe")
+
+	var tun2socksString = ExecCmd("tasklist | findstr tun2socks.exe")
+	if strings.Contains(tun2socksString, "tun2socks.exe") {
+		log.Info("exec cmd: taskkill /f /im tun2socks.exe")
+		ExecCmdWithArgs("taskkill", "/f", "/im", "tun2socks.exe")
+	}
 
 	var listeningString = ExecCmd(fmt.Sprintf("netstat -ano | findstr %d | findstr LISTENING", configure.GetPortsNotNil().Socks5))
 	if len(listeningString) > 0 {
@@ -176,12 +181,12 @@ func InitRoute() {
 	serverIpSet := GetServerDirectIP()
 	AddRoute(serverIpSet, gw)
 
-	waitChan := make(chan int, 0)
+	waitChan := make(chan int)
 	go func() {
 		var socks5 = fmt.Sprintf("socks5://127.0.0.1:%d", configure.GetPortsNotNil().Socks5)
 		for {
 			client := GetHttpClient(socks5)
-			rsp, err := client.Get("https://google.com/")
+			rsp, err := client.Get("https://www.google.com/generate_204")
 			if err != nil {
 				continue
 			}
@@ -190,7 +195,7 @@ func InitRoute() {
 				continue
 			}
 			_ = rsp.Body.Close()
-			if len(data) > 0 {
+			if rsp.StatusCode == 204 || len(data) > 0 {
 				close(waitChan)
 				break
 			}
