@@ -20,6 +20,7 @@ import (
 	"github.com/mohae/deepcopy"
 	"github.com/v2rayA/RoutingA"
 	"github.com/v2rayA/v2rayA/common"
+	"github.com/v2rayA/v2rayA/common/netTools"
 	"github.com/v2rayA/v2rayA/common/netTools/netstat"
 	"github.com/v2rayA/v2rayA/common/netTools/ports"
 	"github.com/v2rayA/v2rayA/conf"
@@ -44,6 +45,7 @@ type Template struct {
 		DomainMatcher  string                `json:"domainMatcher,omitempty"`
 		Rules          []coreObj.RoutingRule `json:"rules"`
 		Balancers      []coreObj.Balancer    `json:"balancers,omitempty"`
+		OutboundIp     string                `json:"outboundIp"`
 	} `json:"routing"`
 	DNS         *coreObj.DNS         `json:"dns,omitempty"`
 	FakeDns     *coreObj.FakeDns     `json:"fakedns,omitempty"`
@@ -1050,6 +1052,13 @@ func (t *Template) setInbound() error {
 		if t.Setting.WinTun && t.Variant == "Xray" {
 			t.Inbounds[0].Sniffing.Enabled = true
 			t.Inbounds[0].Settings.UDP = true
+			_, ipString := netTools.GetGatewayIp()
+			ip := net.ParseIP(ipString)
+			if len(ip) > 0 {
+				t.Inbounds[2].Sniffing.Enabled = true
+				t.Inbounds[2].Settings.UDP = true
+				t.Routing.OutboundIp = ipString
+			}
 		}
 	}
 	// remove those inbounds with zero port number

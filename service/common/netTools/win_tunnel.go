@@ -3,6 +3,7 @@ package netTools
 import (
 	"fmt"
 	"io/ioutil"
+	"net"
 	"strings"
 	"time"
 
@@ -50,7 +51,7 @@ func CheckAndStartWinTunnel() {
 		return // 为了避免因为环境因素不支持, 强行开启tun代理导致上网异常, 这里直接return
 	}
 
-	gw, _ := GetGatewayIp()
+	gw, ipString := GetGatewayIp()
 	if len(gw) == 0 {
 		log.Error("GetGatewayIp err")
 		return
@@ -67,19 +68,27 @@ func CheckAndStartWinTunnel() {
 	}
 	AddRoute(serverIpSet, gw) // 目前国内的ip也会走代理，只能想办法加到路由表, 技术有限想不到更好的办法
 
-	var socks5 = fmt.Sprintf("socks5://127.0.0.1:%d", configure.GetPortsNotNil().Socks5)
+	socks5Port, socks5WithPac := configure.GetPortsNotNil().Socks5, configure.GetPortsNotNil().Socks5WithPac
+	ip := net.ParseIP(ipString)
+	if socks5WithPac > 0 && len(ip) > 0 {
+		socks5Port = socks5WithPac // 使用分流端口开启tun代理, 必须指定出站的网卡ip
+	}
+	var socks5 = fmt.Sprintf("socks5://127.0.0.1:%d", socks5Port)
 	waitChan := make(chan int)
 	var isOpen = false // 检查Xray core是否启动成功
 
 	go func() {
 		client := GetHttpClient(socks5)
 		for i := 0; i < 5; i++ {
+			time.Sleep(time.Second * 3)
 			rsp, err := client.Get("https://www.google.com/generate_204")
 			if err != nil {
+				log.Error("检查Socks入站端口 http get err:%+v", err)
 				continue
 			}
 			data, err := ioutil.ReadAll(rsp.Body)
 			if err != nil {
+				log.Error("检查Socks入站端口 ReadAll err:%+v", err)
 				continue
 			}
 			_ = rsp.Body.Close()
@@ -88,7 +97,6 @@ func CheckAndStartWinTunnel() {
 				close(waitChan)
 				return
 			}
-			time.Sleep(time.Second * 3)
 		}
 		close(waitChan) // 为了防止协程泄露，一定次数之后关闭，释放另外两个正在等待中的协程
 	}()
