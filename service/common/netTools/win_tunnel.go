@@ -66,7 +66,7 @@ func CheckAndStartWinTunnel() {
 	for _, dnsIp := range directDnsIp {
 		serverIpSet.Add(dnsIp) // 防止流量在本地回环死循环, 导致系统CPU和内存暴增
 	}
-	AddRoute(serverIpSet, gw) // 目前国内的ip也会走代理，只能想办法加到路由表, 技术有限想不到更好的办法
+	AddRoute(serverIpSet, gw) // 要想使用geoip分流规则, 需要设置 Socks5WithPac socks5分流的入站端口, 改用这个定制的Xray-core https://github.com/gesneriana/Xray-core
 
 	socks5Port, socks5WithPac := configure.GetPortsNotNil().Socks5, configure.GetPortsNotNil().Socks5WithPac
 	ip := net.ParseIP(ipString)
