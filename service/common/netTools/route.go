@@ -11,6 +11,7 @@ import (
 func GetGatewayIp() (gatewayIp string, ip string) {
 	var result = cmds.ExecCmd("chcp 65001 & ipconfig")
 	lines := strings.Split(result, "\n")
+	ipSlice := make([]string, 0)
 
 	for i, line := range lines {
 		if strings.Contains(line, "默认网关") || strings.Contains(line, "Default Gateway") {
@@ -32,7 +33,21 @@ func GetGatewayIp() (gatewayIp string, ip string) {
 			ipLineSlice := strings.Split(line, ":")
 			ipString := ipLineSlice[len(ipLineSlice)-1]
 			if strings.Count(ipString, ".") == 3 {
-				ip = strings.TrimSpace(strings.Trim(ipString, "\r"))
+				ipSlice = append(ipSlice, strings.TrimSpace(strings.Trim(ipString, "\r")))
+			}
+		}
+	}
+	if len(gatewayIp) > 0 {
+		getewaySlice := strings.Split(gatewayIp, ".")
+		if len(getewaySlice) != 4 {
+			return
+		}
+		// 暂不考虑cidr ip范围为16的情况
+		prefixString := fmt.Sprintf("%s.%s.%s", getewaySlice[0], getewaySlice[1], getewaySlice[2])
+		for _, ipString := range ipSlice {
+			if strings.HasPrefix(ipString, prefixString) {
+				ip = ipString // 使用匹配的 网关和网卡ip, 如果与多个网卡, 请考虑手动指定网关ip和网卡ip
+				break
 			}
 		}
 	}
