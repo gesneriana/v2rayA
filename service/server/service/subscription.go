@@ -15,6 +15,7 @@ import (
 	"github.com/pkg/errors"
 	"github.com/v2rayA/v2rayA/common"
 	"github.com/v2rayA/v2rayA/common/httpClient"
+	"github.com/v2rayA/v2rayA/common/netTools"
 	"github.com/v2rayA/v2rayA/common/resolv"
 	"github.com/v2rayA/v2rayA/core/serverObj"
 	"github.com/v2rayA/v2rayA/core/touch"
@@ -285,11 +286,8 @@ type DNSQuery struct {
 }
 
 func parseSubscriptionDomain(sub *configure.SubscriptionRawV2, serverList []serverObj.ServerObj) {
-	client, err := httpClient.GetHttpClientWithv2rayAProxy()
-	if err != nil {
-		log.Warn("parseSubscriptionDomain GetHttpClientWithv2rayAProxy err: %s\n", errors.WithStack(err).Error())
-		return
-	}
+	var socks5 = fmt.Sprintf("socks5://127.0.0.1:%d", configure.GetPortsNotNil().Socks5)
+	client := netTools.GetHttpClient(socks5)
 
 	sub.DirectIpSet = make(map[string]struct{}, 0)
 	var domainIpMap = make(map[string]string, 0)
