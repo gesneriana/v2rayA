@@ -79,7 +79,7 @@ func CheckAndStartWinTunnel() {
 
 	go func() {
 		client := GetHttpClient(socks5)
-		for i := 0; i < 5; i++ {
+		for i := 0; i < 10; i++ {
 			time.Sleep(time.Second * 3)
 			rsp, err := client.Get("https://www.google.com/generate_204")
 			if err != nil {
@@ -94,8 +94,7 @@ func CheckAndStartWinTunnel() {
 			_ = rsp.Body.Close()
 			if rsp.StatusCode == 204 || len(data) > 0 {
 				isOpen = true
-				close(waitChan)
-				return
+				break
 			}
 		}
 		close(waitChan) // 为了防止协程泄露，一定次数之后关闭，释放另外两个正在等待中的协程
