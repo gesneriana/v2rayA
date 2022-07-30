@@ -20,33 +20,136 @@ type CoreProcessManager struct {
 var ProcessManager CoreProcessManager
 
 func (m *CoreProcessManager) beforeStop(p *Process) {
-	if p.template.Setting.Transparent != configure.TransparentClose &&
-		conf.GetEnvironmentConfig().TransparentHook != "" {
-		log.Info("Execute the transparent pre stop hook: %v", conf.GetEnvironmentConfig().TransparentHook)
-		b, err := exec.Command(conf.GetEnvironmentConfig().TransparentHook, fmt.Sprintf("--transparent-type=%v", p.template.Setting.TransparentType), "--stage=pre-stop").CombinedOutput()
+	m.CheckAndStopTransparentProxy(p.template.Setting)
+	specialMode.StopDNSSupervisor()
+
+	if conf.GetEnvironmentConfig().CoreHook != "" {
+		log.Info("Execute the core pre stop hook: %v", conf.GetEnvironmentConfig().CoreHook)
+		b, err := exec.Command(conf.GetEnvironmentConfig().CoreHook,
+			"--stage=pre-stop",
+			fmt.Sprintf("--v2raya-confdir=%v", conf.GetEnvironmentConfig().Config),
+		).CombinedOutput()
+		if len(b) > 0 {
+			log.Info("Executing the core pre stop hook: %v", string(b))
+		}
 		if err != nil {
-			log.Warn("Error when executing the transparent pre stop hook: %v", err)
+			log.Warn("Error when executing the core pre stop hook: %v", err)
 			return
 		}
-		if len(b) > 0 {
-			log.Info("Executing the transparent pre stop hook: %v", string(b))
+	}
+}
+
+func (m *CoreProcessManager) GetRunningTemplate() *Template {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.p == nil {
+		return nil
+	}
+	return m.p.template
+}
+
+func (m *CoreProcessManager) CheckAndSetupTransparentProxy(checkRunning bool, setting *configure.Setting) (err error) {
+	if setting != nil {
+		setting.FillEmpty()
+	} else {
+		setting = configure.GetSettingNotNil()
+	}
+	if (!checkRunning || ProcessManager.Running()) && IsTransparentOn() {
+		deleteTransparentProxyRules()
+
+		if conf.GetEnvironmentConfig().TransparentHook != "" {
+			log.Info("Execute the transparent pre start hook: %v", conf.GetEnvironmentConfig().TransparentHook)
+			b, err := exec.Command(conf.GetEnvironmentConfig().TransparentHook,
+				fmt.Sprintf("--transparent-type=%v", setting.TransparentType),
+				"--stage=pre-start",
+				fmt.Sprintf("--v2raya-confdir=%v", conf.GetEnvironmentConfig().Config),
+			).CombinedOutput()
+			if len(b) > 0 {
+				log.Info("Executing the transparent pre start hook: %v", string(b))
+			}
+			if err != nil {
+				return fmt.Errorf("executing the transparent pre start hook: %w", err)
+			}
+		}
+
+		err = writeTransparentProxyRules()
+
+		if conf.GetEnvironmentConfig().TransparentHook != "" {
+			log.Info("Execute the transparent post start hook: %v", conf.GetEnvironmentConfig().TransparentHook)
+			b, err := exec.Command(conf.GetEnvironmentConfig().TransparentHook,
+				fmt.Sprintf("--transparent-type=%v", setting.TransparentType),
+				"--stage=post-start",
+				fmt.Sprintf("--v2raya-confdir=%v", conf.GetEnvironmentConfig().Config),
+			).CombinedOutput()
+			if len(b) > 0 {
+				log.Info("Executing the transparent post start hook: %v", string(b))
+			}
+			if err != nil {
+				return fmt.Errorf("executing the transparent post start hook: %w", err)
+			}
 		}
 	}
-	CheckAndStopTransparentProxy()
-	specialMode.StopDNSSupervisor()
+	return
+}
+
+func (m *CoreProcessManager) CheckAndStopTransparentProxy(setting *configure.Setting) {
+	if setting == nil {
+		if t := m.GetRunningTemplate(); t != nil {
+			setting = t.Setting
+		} else {
+			return
+		}
+	}
+	if setting.Transparent != configure.TransparentClose {
+		if conf.GetEnvironmentConfig().TransparentHook != "" {
+			log.Info("Execute the transparent pre stop hook: %v", conf.GetEnvironmentConfig().TransparentHook)
+			b, err := exec.Command(conf.GetEnvironmentConfig().TransparentHook,
+				fmt.Sprintf("--transparent-type=%v", setting.TransparentType),
+				"--stage=pre-stop",
+				fmt.Sprintf("--v2raya-confdir=%v", conf.GetEnvironmentConfig().Config),
+			).CombinedOutput()
+			if len(b) > 0 {
+				log.Info("Executing the transparent pre stop hook: %v", string(b))
+			}
+			if err != nil {
+				log.Warn("Error when executing the transparent pre stop hook: %v", err)
+				return
+			}
+		}
+
+		deleteTransparentProxyRules()
+
+		if conf.GetEnvironmentConfig().TransparentHook != "" {
+			log.Info("Execute the transparent post stop hook: %v", conf.GetEnvironmentConfig().TransparentHook)
+			b, err := exec.Command(conf.GetEnvironmentConfig().TransparentHook,
+				fmt.Sprintf("--transparent-type=%v", setting.TransparentType),
+				"--stage=post-stop",
+				fmt.Sprintf("--v2raya-confdir=%v", conf.GetEnvironmentConfig().Config),
+			).CombinedOutput()
+			if len(b) > 0 {
+				log.Info("Executing the transparent post stop hook: %v", string(b))
+			}
+			if err != nil {
+				log.Warn("Error when executing the transparent post stop hook: %v", err)
+				return
+			}
+		}
+	}
 }
 
 func (m *CoreProcessManager) afterStop(p *Process) {
-	if p.template.Setting.Transparent != configure.TransparentClose &&
-		conf.GetEnvironmentConfig().TransparentHook != "" {
-		log.Info("Execute the transparent after stop hook: %v", conf.GetEnvironmentConfig().TransparentHook)
-		b, err := exec.Command(conf.GetEnvironmentConfig().TransparentHook, fmt.Sprintf("--transparent-type=%v", p.template.Setting.TransparentType), "--stage=post-stop").CombinedOutput()
-		if err != nil {
-			log.Warn("Error when executing the transparent after stop hook: %v", err)
-			return
-		}
+	if conf.GetEnvironmentConfig().CoreHook != "" {
+		log.Info("Execute the core post stop hook: %v", conf.GetEnvironmentConfig().CoreHook)
+		b, err := exec.Command(conf.GetEnvironmentConfig().CoreHook,
+			"--stage=post-stop",
+			fmt.Sprintf("--v2raya-confdir=%v", conf.GetEnvironmentConfig().Config),
+		).CombinedOutput()
 		if len(b) > 0 {
-			log.Info("Executing the transparent after stop hook: %v", string(b))
+			log.Info("Executing the core post stop hook: %v", string(b))
+		}
+		if err != nil {
+			log.Warn("Error when executing the core post stop hook: %v", err)
+			return
 		}
 	}
 }
@@ -63,6 +166,7 @@ func (m *CoreProcessManager) stop(saveRunning bool) {
 	}
 
 	m.beforeStop(m.p)
+
 	err := m.p.Close()
 	if err != nil {
 		log.Warn("CoreProcessManager.Stop: %v", err)
@@ -77,18 +181,6 @@ func (m *CoreProcessManager) stop(saveRunning bool) {
 }
 
 func (m *CoreProcessManager) beforeStart(t *Template) (err error) {
-	if t.Setting.Transparent != configure.TransparentClose &&
-		conf.GetEnvironmentConfig().TransparentHook != "" {
-		log.Info("Execute the transparent pre start hook: %v", conf.GetEnvironmentConfig().TransparentHook)
-		b, err := exec.Command(conf.GetEnvironmentConfig().TransparentHook, fmt.Sprintf("--transparent-type=%v", t.Setting.TransparentType), "--stage=pre-start").CombinedOutput()
-		if err != nil {
-			return fmt.Errorf("executing the transparent pre start hook: %w", err)
-		}
-		if len(b) > 0 {
-			log.Info("Executing the transparent pre start hook: %v", string(b))
-		}
-	}
-
 	resolv.CheckResolvConf()
 
 	if (t.Setting.Transparent == configure.TransparentGfwlist || t.Setting.RulePortMode == configure.GfwlistMode) && !asset.DoesV2rayAssetExist("LoyalsoldierSite.dat") {
@@ -99,25 +191,39 @@ func (m *CoreProcessManager) beforeStart(t *Template) (err error) {
 		return err
 	}
 
+	if conf.GetEnvironmentConfig().CoreHook != "" {
+		log.Info("Execute the core pre start hook: %v", conf.GetEnvironmentConfig().CoreHook)
+		b, err := exec.Command(conf.GetEnvironmentConfig().CoreHook,
+			"--stage=pre-start",
+			fmt.Sprintf("--v2raya-confdir=%v", conf.GetEnvironmentConfig().Config),
+		).CombinedOutput()
+		if len(b) > 0 {
+			log.Info("Executing the core pre start hook: %v", string(b))
+		}
+		if err != nil {
+			return fmt.Errorf("executing the core pre start hook: %w", err)
+		}
+	}
 	return nil
 }
 
 func (m *CoreProcessManager) afterStart(t *Template) (err error) {
-	if err = CheckAndSetupTransparentProxy(true, t.Setting); err != nil {
-		m.stop(true)
-		return
+	if err = m.CheckAndSetupTransparentProxy(false, t.Setting); err != nil {
+		return err
 	}
 	specialMode.CheckAndSetupDNSSupervisor()
 
-	if t.Setting.Transparent != configure.TransparentClose &&
-		conf.GetEnvironmentConfig().TransparentHook != "" {
-		log.Info("Execute the transparent after start hook: %v", conf.GetEnvironmentConfig().TransparentHook)
-		b, err := exec.Command(conf.GetEnvironmentConfig().TransparentHook, fmt.Sprintf("--transparent-type=%v", t.Setting.TransparentType), "--stage=post-start").CombinedOutput()
-		if err != nil {
-			return fmt.Errorf("executing the transparent after start hook: %w", err)
-		}
+	if conf.GetEnvironmentConfig().CoreHook != "" {
+		log.Info("Execute the core post start hook: %v", conf.GetEnvironmentConfig().CoreHook)
+		b, err := exec.Command(conf.GetEnvironmentConfig().CoreHook,
+			"--stage=post-start",
+			fmt.Sprintf("--v2raya-confdir=%v", conf.GetEnvironmentConfig().Config),
+		).CombinedOutput()
 		if len(b) > 0 {
-			log.Info("Executing the transparent after start hook: %v", string(b))
+			log.Info("Executing the core post start hook: %v", string(b))
+		}
+		if err != nil {
+			return fmt.Errorf("executing the core post start hook: %w", err)
 		}
 	}
 	return nil
@@ -129,19 +235,20 @@ func (m *CoreProcessManager) Start(t *Template) (err error) {
 
 	m.stop(true)
 
-	if err := m.beforeStart(t); err != nil {
-		return err
-	}
-
-	process, err := NewProcess(t)
+	process, err := NewProcess(t, func() error {
+		return m.beforeStart(t)
+	}, func() error {
+		return m.afterStart(t)
+	})
 	if err != nil {
 		return err
 	}
 	m.p = process
-
-	if err := m.afterStart(t); err != nil {
-		return err
-	}
+	defer func() {
+		if err != nil {
+			m.stop(true)
+		}
+	}()
 
 	configure.SetRunning(true)
 	return nil

@@ -12,6 +12,7 @@ import (
 	"strings"
 	"time"
 
+	jsoniter "github.com/json-iterator/go"
 	"github.com/pkg/errors"
 	"github.com/v2rayA/v2rayA/common"
 	"github.com/v2rayA/v2rayA/common/httpClient"
@@ -42,7 +43,7 @@ type SIP008 struct {
 }
 
 func resolveSIP008(raw string) (infos []serverObj.ServerObj, sip SIP008, err error) {
-	err = json.Unmarshal([]byte(raw), &sip)
+	err = jsoniter.Unmarshal([]byte(raw), &sip)
 	if err != nil {
 		return
 	}
@@ -163,7 +164,7 @@ func ResolveSubscriptionWithClient(source string, client *http.Client) (infos []
 	if err != nil {
 		raw, _ = common.Base64URLDecode(string(b))
 	}
-	infos, status, err = ResolveLines(raw)
+	infos, status, err = ResolveByLines(raw)
 	if err != nil {
 		return nil, "", err
 	}
@@ -177,7 +178,7 @@ func ResolveSubscriptionWithClient(source string, client *http.Client) (infos []
 	return infos, status, nil
 }
 
-func ResolveLines(raw string) (infos []serverObj.ServerObj, status string, err error) {
+func ResolveByLines(raw string) (infos []serverObj.ServerObj, status string, err error) {
 	var sip SIP008
 	if infos, sip, err = resolveSIP008(raw); err == nil {
 		status = getDataUsageStatus(sip.BytesUsed, sip.BytesRemaining)
