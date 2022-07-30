@@ -62,12 +62,12 @@ func GetGatewayIp() (gatewayIp string, ip string) {
 	}
 
 	if len(gatewayIp) > 0 {
-		getewaySlice := strings.Split(gatewayIp, ".")
-		if len(getewaySlice) != 4 {
+		gatewaySlice := strings.Split(gatewayIp, ".")
+		if len(gatewaySlice) != 4 {
 			return
 		}
 		// 暂不考虑cidr ip范围为16的情况
-		prefixString := fmt.Sprintf("%s.%s.%s", getewaySlice[0], getewaySlice[1], getewaySlice[2])
+		prefixString := fmt.Sprintf("%s.%s.%s", gatewaySlice[0], gatewaySlice[1], gatewaySlice[2])
 		for _, ipString := range ipSlice {
 			if strings.HasPrefix(ipString, prefixString) {
 				ip = ipString // 使用匹配的 网关和网卡ip, 如果有多个网卡, 请考虑手动指定网关ip和网卡ip
