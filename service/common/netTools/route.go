@@ -2,11 +2,12 @@ package netTools
 
 import (
 	"fmt"
+	"net"
+	"strings"
+
 	mapset "github.com/deckarep/golang-set/v2"
 	"github.com/v2rayA/v2rayA/common/cmds"
 	"github.com/v2rayA/v2rayA/pkg/util/log"
-	"net"
-	"strings"
 )
 
 // GetOutBoundIP 获取默认的出站ip, 多个网卡也能正常获取, 如果这时候恰好网络连接断开了就获取不到了, 如果已经用clash开启了tun代理也获取不到, 获取的ip是198.18.0.1, 这个是错误的
@@ -39,7 +40,7 @@ func GetGatewayIp() (gatewayIp string, ip string) {
 	for i, line := range lines {
 		if strings.Contains(line, "默认网关") || strings.Contains(line, "Default Gateway") {
 			gw1, gw2 := line, ""
-			if len(line) > i+1 {
+			if len(lines) > i+1 {
 				gw2 = lines[i+1]
 			}
 			if strings.Count(gw1, ".") == 3 {
